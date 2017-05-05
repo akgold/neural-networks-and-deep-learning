@@ -14,17 +14,14 @@ init_network <- function(sizes) {
   stopifnot(is.numeric(sizes))
   stopifnot(all(sizes > 0))
   stopifnot(length(sizes) > 1)
-
-  nn <- list(2)
+  
   
   # Initialize weights and biases
-  nn$weights <- lapply(1:(length(sizes)-1), 
-                       function(i) matrix(rnorm(sizes[i]*sizes[i+1]), 
-                                          ncol = sizes[i]))
-  nn$biases <- lapply(sizes[2:length(sizes)], 
-                      function(size) rnorm(size))
-
-  nn
+  list(nn$weights <- lapply(1:(length(sizes)-1), 
+                            function(i) matrix(rnorm(sizes[i]*sizes[i+1]), 
+                                               ncol = sizes[i])),
+       nn$biases <- lapply(sizes[2:length(sizes)], 
+                           function(size) rnorm(size)))
 }
 
 #' Format Input and Output Data for Neural Network
@@ -43,14 +40,8 @@ nn_make_data <- function(x, y){
   stopifnot(is.data.frame(x))
   stopifnot(is.numeric(y))
   stopifnot(nrow(x) == length(y))
-
-  # Format
-  l <- data.frame(cbind(x, y))
-  names(l) <- NULL
-  names(l)[ncol(l)] <- "y"
-  class(l) <- append(class(l), "nn_data")
-
-  l
+  
+  list(x = x, y = y)
 }
 
 #' Train a network using SGD
@@ -119,23 +110,95 @@ run_sgd <- function(network, training_data, epochs, split_size, eta,
 #' @examples
 update_batch <- function(network, mini_batch, eta) {
   delt <- backprop(network, mini_batch)
-
-  network$weights <- network$weights - (eta/nrow(mini_batch))*delt$weights
-  network$biases <- network$biases - (eta/nrow(mini_batch))*delt$biases
+  
+  layers <- length(network$weights)
+  network$weights <- lapply(layers, 
+                            function(i) {
+                              network$weights[[i]] - 
+                                (eta/nrow(mini_batch))*delt$weights[[i]]
+                            })
+  network$biases <- lapply(layers, 
+                           function(i) {
+                             network$biases[[i]] - 
+                               (eta/nrow(mini_batch))*delt$biases[[i]]
+                           })
 }
 
-#UNFINISHED
-backprop <- function(network, x, y) {
 
-  network <- data.table::rbindlist(list(network,
-                                   data.table(z = NA,
-                                              activations = as.numeric(x),
-                                              layer = 1)),
-                                   use.names = T, fill = T)
-  activations <- lapply(2:max(network$layer),
-                      function(layer)
-                        get_activations(activations, network, layer))
+#' @examples 
+#' mb <- nn_make_data(data.frame(x1 = sample(0:1, 10, replace = T),
+#' x2 = sample(0:1, 10, replace = T)), sample(0:1, 10, replace = T))
+#' nn <- init_network(c(2, 3, 4))
+#' backprop(nn, mb, 3)
+backprop <- function(network, mini_batch, eta) {
 
+  # Backpropogate all rows of mini-batch
+  bps <- lapply(1:length(mini_batch$y), 
+                function(i) backprop_single(network, 
+                                            mini_batch$x[i,],
+                                            mini_batch$y[i]))
+  bps <- purrr::transpose(bps)
+  
+  # Average across rows to change weights
+  for (layer in 1:length(network)){
+    network$weights[[i]] <- network$weights[[i]] -
+      eta / length(bps$weights) * 
+      purrr::reduce(bps$weights, function(x, y) x[[i]] + y [[i]])
+    network$biases[[i]] <- network$biases[[i]] -
+      eta / length(bps$biases) * 
+      purrr::reduce(bps$biases, function(x, y) x[[i]] + y [[i]])
+  }
+
+  network
+}
+
+#' Backpropogate error based on a single input to the network
+#' @param network a neural network as configured by init_network
+#' @param x a vector of xs
+#' @param y a vector of ys
+#' 
+#' @return the gradient for the cost function wrt each bias and weight
+#' 
+#' @examples 
+#' network <- init_network(c(3, 4, 2))
+#' d <- nn_make_data(x = data.frame(runif(10), runif(10), runif(10)), y = runif(10))
+#' nab <- backprop_single(nn, d$x[1,], d$y[1])
+#' nab
+backprop_single <- function(network, x, y){
+  layers <- length(network)
+  stopifnot(ncol(network$weights[[1]]) == length(x))
+  
+  # Set up output
+  z <- list()
+  activations <- list()
+  activations[[1]] <- as.numeric(x)
+  
+  # Do forward pass
+  for (layer in 1:(layers-1)){
+    z[[layer]] = network$weights[[layer]] %*% activations[[layer]]
+    activations[[layer+1]] <- sigmoid(z[[layer]])
+  }
+  
+  # Set up nablas for each layer
+  nabla <- list()
+  nabla$weights <- list()
+  nabla$biases <- list()
+  
+  # Get Nablas for output layer
+  nabla$biases[[layers-1]] <- cost_derivative(activations[[layers]], y) * 
+    sigmoid_prime(z[[layers-1]])
+  nabla$weights[[layers-1]] <- nabla$biases[[layers - 1]] %*%
+    t(activations[[layers-1]])
+  
+  # Propogate error through network
+  for (layer in ((layers-1):2)){
+    nabla$biases[[layer-1]] <- t(network$weights[[layer]]) %*% 
+      nabla$biases[[layer]]  * sigmoid_prime(z[[layer-1]])
+    nabla$weights[[layer-1]] <- nabla$biases[[layer-1]] %*% 
+      t(activations[[layer]])
+  }
+  
+  nabla
 }
 
 get_activations <- function(network, layer){
@@ -154,6 +217,17 @@ feed_forward <- function(network, dat) {
   sigmoid(network$weights %*% dat + network$biases)
 }
 
+#' Partial Derivatives of Output wrt final activations
+#' @param output_activations activations of final layer
+#' @param y actual ys
+#' 
+#'  @return vector of derivatives
+#'  @examples
+#'  cost_derivative(runif(4), runif(4)) 
+cost_derivative <- function(output_activations, y){
+  output_activations - y
+}
+
 
 #' Compute sigmoid function of argument
 #'
@@ -163,8 +237,20 @@ feed_forward <- function(network, dat) {
 #' @export
 #'
 #' @examples
-#' sigmoid(3.5676)
+#' sigmoid(runif(5))
 sigmoid <- function(z) {
   1/(1 + exp(-z))
 }
 
+#' Compute derivative sigmoid function of argument
+#'
+#' @param z the function
+#'
+#' @return derivative of sigmoid at z
+#' @export
+#'
+#' @examples
+#' sigmoid_prime(runif(5))
+sigmoid_prime <- function(z) {
+  sigmoid(z) * (1 - sigmoid(z))
+}
