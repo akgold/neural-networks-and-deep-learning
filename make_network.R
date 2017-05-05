@@ -15,55 +15,16 @@ init_network <- function(sizes) {
   stopifnot(all(sizes > 0))
   stopifnot(length(sizes) > 1)
 
-  nn <- lapply(2:length(sizes),
-               function(i){
-                 l <- init_layer(size = sizes[i],
-                                 prev_layer_nodes = sizes[i-1])
-                 l$layer <- i
-                 l
-               })
-  nn <- data.table::rbindlist(nn)
-
-
-  class(nn) <- append(class(nn), "nn")
+  nn <- list(2)
+  
+  # Initialize weights and biases
+  nn$weights <- lapply(1:(length(sizes)-1), 
+                       function(i) matrix(rnorm(sizes[i]*sizes[i+1]), 
+                                          ncol = sizes[i]))
+  nn$biases <- lapply(sizes[2:length(sizes)], 
+                      function(size) rnorm(size))
 
   nn
-}
-
-
-
-#' Create a layer of a neural network
-#'
-#' @param size number of neurons in this layer
-#' @param prev_layer_nodes number of neurons in the prior layer
-#'
-#' @return
-#' @export
-#'
-#' @examples
-#' init_layer(10, 4)
-init_layer <- function(size, prev_layer_nodes){
-  l <- data.table::rbindlist(
-    lapply(1:size,
-           function(i) init_neuron(prev_layer_nodes)))
-  l[, size := size]
-  l[, prev_node := 1:prev_layer_nodes]
-
-  l
-}
-
-#' Create a single Neuron
-#'
-#' @param input_nodes integer number of input nodes
-#'
-#' @return a data.table with `input_nodes` unique weights and one bias
-#' @export
-#'
-#' @examples
-#' init_neuron(8)
-init_neuron <- function(input_nodes){
-  data.table(bias = rnorm(1),
-             weights = rnorm(input_nodes))
 }
 
 #' Format Input and Output Data for Neural Network
