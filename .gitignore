@@ -6,4 +6,5 @@
 .DS_Store
 loc.py
 src/ec2
+.Rhistory
 .Rproj.user
