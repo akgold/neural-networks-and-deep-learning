@@ -48,8 +48,10 @@ nn_make_data <- function(network, x, y){
   stopifnot(max(y) <= network$sizes[length(network$sizes)])
   
   # Turn categorical Y into vector
-  y <- factor(y, levels = seq(network$sizes[length(network$sizes)]))
+  y <- factor(y, levels = seq(network$sizes[length(network$sizes)]) - 1)
   y <- as.data.frame(model.matrix(~ y - 1))
+  
+  stopifnot(nrow(x) == nrow(y))
   
   list(x = x, y = y)
 }
@@ -80,25 +82,24 @@ run_sgd <- function(network, training_data, epochs, split_size, eta,
   for (i in seq_len(epochs)) {
     # Randomly assign mini-batches
     n_folds <- ceiling(nrow(training_data$x)/split_size)
-    fold <- sample(1:n_folds, nrow(training_data$x), replace = F)
+    fold <- sample(1:n_folds, nrow(training_data$x), replace = T)
 
     for (j in seq_len(n_folds)) {      
-      print(j)
-      print(network)
       # Update network for each mini-batch
       mini_batch <- list()
       mini_batch$x <- training_data$x[fold == j,]
       mini_batch$y <- training_data$y[fold == j,]
+
       network <- update_batch(network, mini_batch, eta)
-
-
-      # Print diagnostics
-      if (!is.null(test_data)) {
-        cat(sprintf("Epoch %s: %s/%s",
-                    j, nn_eval(nn, test_data), nrow(test_data$x)))
-      } else {
-        sprintf("Epoch %s: ", j)
-      }
+    }
+    
+    
+    # Print diagnostics
+    if (!is.null(test_data)) {
+      cat(sprintf("Epoch %s: %s/%s\n",
+                  i, nn_eval(network, test_data), nrow(test_data$x)))
+    } else {
+      sprintf("Epoch %s: ", i)
     }
   }
   network
@@ -170,6 +171,7 @@ backprop <- function(network, mini_batch, eta) {
       w <- w - eta / n * bps[[i]]$weights[[layer]]
       b <- b - eta / n * bps[[i]]$biases[[layer]]
     }
+    
     network$weights[[layer]] <- w
     network$biases[[layer]] <- b
   }
