@@ -11,7 +11,7 @@ test_y <- d$test$y
 norm <- function(x) {
   (array(x, dim = c(dim(x)[1], 
                    prod(dim(x)[-1]))) - mean(x)) / 
-    (max(x) - mean(x))
+    (sd(x))
 }
 
 train_x <- norm(train_x)
